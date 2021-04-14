@@ -56,11 +56,7 @@ struct AglEnvInfo {
 }
 
 fn align(pos: usize, alignment: usize) -> usize {
-    // if pos % alignment != 0 {
     ((pos as i64 + alignment as i64 - 1) & (0 - alignment as i64)) as usize
-    // } else {
-    //     pos
-    // }
 }
 
 #[cached]

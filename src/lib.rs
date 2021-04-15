@@ -19,7 +19,7 @@ use binread::BinRead;
 use binwrite::BinWrite;
 mod parse;
 mod writer;
-pub use parse::Sarc;
+pub use parse::{Sarc, File};
 pub use writer::SarcWriter;
 
 const SARC_MAGIC: [char; 4] = ['S', 'A', 'R', 'C'];

@@ -1,10 +1,9 @@
-#![feature(seek_convenience)]
 //! A simple to use library for parsing and creating Nintendo SARC files in Rust.
 //! Uses zero allocation parsing and handles file alignment requirements for common
 //! formats and games like `The Legend of Zelda: Breath of the Wild`.
-//! 
+//!
 //! Sample usage:
-//! 
+//!
 //! ```
 //! use sarc_rs::{Sarc, SarcWriter};
 //! let data = std::fs::read("test/Dungeon119.pack").unwrap();
@@ -35,6 +34,7 @@ fn hash_name(multiplier: u32, name: &str) -> u32 {
 #[derive(Debug, Eq, PartialEq, Copy, Clone, BinRead)]
 #[br(repr = u16)]
 #[repr(u16)]
+/// An enum to represent SARC endianness
 pub enum Endian {
     Big = 0xFFFE,
     Little = 0xFEFF,

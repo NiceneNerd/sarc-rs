@@ -27,6 +27,7 @@ impl BinWrite for Endian {
 }
 
 #[derive(Debug, Error)]
+/// An enum representing all possible errors when writing a SARC archive
 pub enum SarcWriteError {
     #[error("{0} is not a valid alignment")]
     InvalidAlignmentError(usize),
@@ -83,27 +84,52 @@ pub struct SarcWriter {
     hash_multiplier: u32,
     min_alignment: usize,
     alignment_map: HashMap<String, usize>,
-    file_map: IndexMap<String, Vec<u8>>,
+    pub files: IndexMap<String, Vec<u8>>,
 }
 
 impl SarcWriter {
+    /// A simple SARC archive writer
     pub fn new(endian: Endian) -> SarcWriter {
         SarcWriter {
             endian,
             legacy: false,
             hash_multiplier: 0x65,
             alignment_map: HashMap::new(),
-            file_map: IndexMap::new(),
+            files: IndexMap::new(),
             min_alignment: 4,
         }
     }
 
+    /// Creates a new SARC writer by taking attributes and files
+    /// from an existing SARC reader
+    pub fn from_sarc(sarc: &Sarc) -> SarcWriter {
+        SarcWriter {
+            endian: sarc.endian(),
+            legacy: false,
+            hash_multiplier: 0x65,
+            alignment_map: HashMap::new(),
+            files: sarc
+                .files()
+                .filter_map(|f| {
+                    if let Some(name) = f.name {
+                        Some((name.to_owned(), f.data.to_vec()))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            min_alignment: sarc.guess_min_alignment(),
+        }
+    }
+
+    /// Write a SARC archive to an in-memory buffer using the specified endianness.
+    /// Default alignment requirements may be automatically added.
     pub fn write_to_bytes(&mut self) -> Result<Vec<u8>> {
         let est_size: usize = 0x14
             + 0x0C
             + 0x8
             + self
-                .file_map
+                .files
                 .iter()
                 .map(|(n, d)| 0x10 + align(n.len() + 1, 4) + d.len())
                 .sum::<usize>();
@@ -112,6 +138,8 @@ impl SarcWriter {
         Ok(buf)
     }
 
+    /// Write a SARC archive to a Write + Seek writer using the specified endianness.
+    /// Default alignment requirements may be automatically added.
     pub fn write<W: Write + Seek>(&mut self, writer: &mut W) -> Result<()> {
         let mut opts = binwrite::WriterOption::default();
         opts.endian = match self.endian {
@@ -120,7 +148,7 @@ impl SarcWriter {
         };
         let multiplier = self.hash_multiplier;
 
-        self.file_map.sort_by(move |name, _, name2, _| {
+        self.files.sort_by(move |name, _, name2, _| {
             Ord::cmp(&hash_name(multiplier, name), &hash_name(multiplier, name2))
         });
 
@@ -128,18 +156,18 @@ impl SarcWriter {
         ResFatHeader {
             magic: SFAT_MAGIC,
             header_size: 0x0C,
-            num_files: self.file_map.len() as u16,
+            num_files: self.files.len() as u16,
             hash_multiplier: self.hash_multiplier,
         }
         .write_options(writer, &opts)?;
 
         self.add_default_alignments()?;
-        let mut alignments: Vec<usize> = Vec::with_capacity(self.file_map.len());
+        let mut alignments: Vec<usize> = Vec::with_capacity(self.files.len());
 
         {
             let mut rel_string_offset = 0;
             let mut rel_data_offset = 0;
-            for (name, data) in self.file_map.iter() {
+            for (name, data) in self.files.iter() {
                 let alignment = self.get_alignment_for_file(name, data);
                 alignments.push(alignment);
 
@@ -163,7 +191,7 @@ impl SarcWriter {
             reserved: 0,
         }
         .write_options(writer, &opts)?;
-        for (name, _) in self.file_map.iter() {
+        for (name, _) in self.files.iter() {
             name.write(writer)?;
             0u8.write(writer)?;
             let pos = writer.stream_position()? as usize;
@@ -176,7 +204,7 @@ impl SarcWriter {
         let pos = writer.stream_position()? as usize;
         writer.seek(SeekFrom::Start(align(pos, required_alignment) as u64))?;
         let data_offset_begin = writer.stream_position()? as u32;
-        for ((_, data), alignment) in self.file_map.iter().zip(alignments.iter()) {
+        for ((_, data), alignment) in self.files.iter().zip(alignments.iter()) {
             let pos = writer.stream_position()? as usize;
             writer.seek(SeekFrom::Start(align(pos, *alignment) as u64))?;
             data.write(writer)?;
@@ -197,6 +225,12 @@ impl SarcWriter {
         Ok(())
     }
 
+    /// Add or modify a data alignment requirement for a file type. Set the alignment to 1 to revert.
+    ///
+    /// # Arguments
+    ///
+    /// * `ext` - File extension without the dot (e.g. “bgparamlist”)
+    /// * `alignment` - Data alignment (must be a power of 2)
     pub fn add_alignment_requirement(&mut self, ext: String, alignment: usize) -> Result<()> {
         if !is_valid_alignment(alignment) {
             return Err(SarcWriteError::InvalidAlignmentError(alignment));
@@ -226,6 +260,7 @@ impl SarcWriter {
         Ok(())
     }
 
+    /// Set the minimum data alignment
     pub fn set_min_alignment(&mut self, alignment: usize) -> Result<()> {
         if !is_valid_alignment(alignment) {
             return Err(SarcWriteError::InvalidAlignmentError(alignment));
@@ -234,10 +269,18 @@ impl SarcWriter {
         Ok(())
     }
 
+    /// Set whether to use legacy mode (for games without a BOTW-style
+    /// resource system) for addtional alignment restrictions
     pub fn set_legacy_mode(&mut self, value: bool) -> () {
         self.legacy = value
     }
 
+    /// Set the endianness
+    pub fn set_endian(&mut self, endian: Endian) -> () {
+        self.endian = endian
+    }
+
+    /// Checks if a data slice represents a SARC archive
     pub fn is_file_sarc(data: &[u8]) -> bool {
         data.len() >= 0x20
             && (&data[0..4] == b"SARC" || (&data[0..4] == b"Yaz0" && &data[0x11..0x15] == b"SARC"))
@@ -304,14 +347,7 @@ mod tests {
         for file in glob::glob("test/*").unwrap().filter_map(|f| f.ok()) {
             let data = std::fs::read(&file).unwrap();
             let sarc = Sarc::new(&data).unwrap();
-            let mut sarc_writer = SarcWriter::new(sarc.endian());
-            sarc_writer.file_map.extend(sarc.files().filter_map(|f| {
-                if let Some(name) = f.name {
-                    Some((name.to_owned(), f.data.to_vec()))
-                } else {
-                    None
-                }
-            }));
+            let mut sarc_writer = SarcWriter::from_sarc(&sarc);
             let new_data = sarc_writer.write_to_bytes().unwrap();
             let new_sarc = Sarc::new(&new_data).unwrap();
             if !Sarc::are_files_equal(&sarc, &new_sarc) {

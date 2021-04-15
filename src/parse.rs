@@ -6,6 +6,7 @@ use std::io::Cursor;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+/// An enum representing all possible errors when reading a SARC archive
 pub enum SarcError {
     #[error("File index {0} out of range")]
     OutOfRange(usize),
@@ -42,6 +43,7 @@ pub struct File<'a> {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
+/// A simple SARC archive reader
 pub struct Sarc<'a> {
     num_files: u16,
     entries_offset: u16,
@@ -54,12 +56,14 @@ pub struct Sarc<'a> {
 }
 
 impl PartialEq for Sarc<'_> {
+    /// Returns true if and only if the raw archive data is identical
     fn eq(&self, other: &Self) -> bool {
         self.data == other.data
     }
 }
 
 impl<'a> Sarc<'_> {
+    /// Parses a SARC archive from binary data
     pub fn new(data: &'a [u8]) -> Result<Sarc<'a>> {
         let mut reader = Cursor::new(data);
         reader.set_position(6);
@@ -145,18 +149,22 @@ impl<'a> Sarc<'_> {
         })
     }
 
+    /// Get the number of files that are stored in the archive
     pub fn file_count(&self) -> usize {
         self.num_files as usize
     }
 
+    /// Get the offset to the beginning of file data
     pub fn data_offset(&self) -> usize {
         self.data_offset as usize
     }
 
+    /// Get the archive endianness
     pub fn endian(&self) -> Endian {
         self.endian
     }
 
+    /// Get a file by name
     pub fn get_file(&self, file: &str) -> Result<Option<File>> {
         if self.num_files == 0 {
             return Ok(None);
@@ -180,6 +188,7 @@ impl<'a> Sarc<'_> {
         Ok(None)
     }
 
+    /// Get a file by index. Returns error if index > file count.
     pub fn file_at(&self, index: usize) -> Result<File> {
         if index >= self.num_files as usize {
             return Err(SarcError::OutOfRange(index));
@@ -204,11 +213,13 @@ impl<'a> Sarc<'_> {
         })
     }
 
+    /// Returns an iterator over the contained files
     pub fn files(&'_ self) -> impl Iterator<Item = File<'_>> {
         let count = self.num_files;
         (0..count).flat_map(move |i| self.file_at(i as usize).ok())
     }
 
+    /// Guess the minimum data alignment for files that are stored in the archive
     pub fn guess_min_alignment(&self) -> usize {
         const MIN_ALIGNMENT: u32 = 4;
         let mut gcd = MIN_ALIGNMENT;
@@ -224,6 +235,7 @@ impl<'a> Sarc<'_> {
         return gcd as usize;
     }
 
+    /// Returns true is each archive contains the same files
     pub fn are_files_equal(sarc1: &Sarc, sarc2: &Sarc) -> bool {
         if sarc1.file_count() != sarc2.file_count() {
             return false;

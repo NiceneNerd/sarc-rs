@@ -19,8 +19,15 @@ use binread::BinRead;
 use binwrite::BinWrite;
 mod parse;
 mod writer;
-pub use parse::{Sarc, File};
+pub use parse::Sarc;
 pub use writer::SarcWriter;
+
+#[derive(Debug, PartialEq)]
+pub struct File<'a> {
+    pub name: Option<&'a str>,
+    pub data: &'a [u8],
+}
+
 
 const SARC_MAGIC: [char; 4] = ['S', 'A', 'R', 'C'];
 const SFAT_MAGIC: [char; 4] = ['S', 'F', 'A', 'T'];

@@ -34,13 +34,6 @@ fn read<T: BinRead>(endian: Endian, reader: &mut Cursor<&[u8]>) -> Result<T> {
         Endian::Little => reader.read_le()?,
     })
 }
-
-#[derive(Debug, PartialEq)]
-pub struct File<'a> {
-    pub name: Option<&'a str>,
-    pub data: &'a [u8],
-}
-
 #[derive(Derivative)]
 #[derivative(Debug)]
 /// A simple SARC archive reader

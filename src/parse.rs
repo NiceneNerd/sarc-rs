@@ -2,7 +2,7 @@ use crate::*;
 use binread::{BinRead, BinReaderExt};
 use core::mem::size_of;
 use derivative::*;
-use std::io::Cursor;
+use std::{borrow::Cow, io::Cursor};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -45,7 +45,7 @@ pub struct Sarc<'a> {
     names_offset: u32,
     endian: Endian,
     #[derivative(Debug = "ignore")]
-    data: &'a [u8],
+    data: Cow<'a, [u8]>,
 }
 
 impl PartialEq for Sarc<'_> {
@@ -57,8 +57,10 @@ impl PartialEq for Sarc<'_> {
 
 impl<'a> Sarc<'_> {
     /// Parses a SARC archive from binary data
-    pub fn new(data: &'a [u8]) -> Result<Sarc<'a>> {
-        let mut reader = Cursor::new(data);
+    pub fn new<T>(data: T) -> Result<Sarc<'a>> where T: Into<Cow<'a, [u8]>> {
+        let data = data.into();
+
+        let mut reader = Cursor::new(data.as_ref());
         reader.set_position(6);
         let endian: Endian = Endian::read(&mut reader)?;
         reader.set_position(0);
@@ -165,7 +167,7 @@ impl<'a> Sarc<'_> {
         let needle_hash = hash_name(self.hash_multiplier, file);
         let mut a: u32 = 0;
         let mut b: u32 = self.num_files as u32 - 1;
-        let mut reader = Cursor::new(self.data);
+        let mut reader = Cursor::new(self.data.as_ref());
         while a <= b {
             let m: u32 = (a + b) as u32 / 2;
             reader.set_position(self.entries_offset as u64 + 0x10 * m as u64);

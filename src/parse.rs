@@ -2,7 +2,7 @@ use crate::*;
 use binread::{BinRead, BinReaderExt};
 use core::mem::size_of;
 use derivative::*;
-use std::{borrow::Cow, io::Cursor};
+use std::{borrow::Cow, hash::{Hash, Hasher}, io::Cursor};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -52,6 +52,14 @@ impl PartialEq for Sarc<'_> {
     /// Returns true if and only if the raw archive data is identical
     fn eq(&self, other: &Self) -> bool {
         self.data == other.data
+    }
+}
+
+impl Eq for Sarc<'_> {}
+
+impl Hash for Sarc<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state)
     }
 }
 

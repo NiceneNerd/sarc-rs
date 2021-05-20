@@ -35,7 +35,7 @@ fn read<T: BinRead>(endian: Endian, reader: &mut Cursor<&[u8]>) -> Result<T> {
     })
 }
 #[derive(Derivative)]
-#[derivative(Debug)]
+#[derivative(Debug, Clone)]
 /// A simple SARC archive reader
 pub struct Sarc<'a> {
     num_files: u16,

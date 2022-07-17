@@ -1,3 +1,5 @@
+#![feature(const_slice_index)]
+#![deny(missing_docs)]
 //! A simple to use library for parsing and creating Nintendo SARC files in Rust.
 //! Uses zero allocation parsing and handles file alignment requirements for common
 //! formats and games like `The Legend of Zelda: Breath of the Wild`.
@@ -22,20 +24,34 @@ mod writer;
 pub use parse::Sarc;
 pub use writer::SarcWriter;
 
-#[derive(Debug, PartialEq)]
+/// A file that is stored in a SARC archive.
+#[derive(Debug, PartialEq, Eq)]
 pub struct File<'a> {
+    /// File name. May be empty for file entries that do not use the file name
+    /// table.
     pub name: Option<&'a str>,
+    /// File data (as a slice).
     pub data: &'a [u8],
 }
-
 
 const SARC_MAGIC: [char; 4] = ['S', 'A', 'R', 'C'];
 const SFAT_MAGIC: [char; 4] = ['S', 'F', 'A', 'T'];
 const SFNT_MAGIC: [char; 4] = ['S', 'F', 'N', 'T'];
 
-fn hash_name(multiplier: u32, name: &str) -> u32 {
-    name.chars()
-        .fold(0, |hash, c| hash.wrapping_mul(multiplier) + (c as u32))
+const fn hash_name(multiplier: u32, name: &str) -> u32 {
+    let mut hash = 0u32;
+    let bytes = name.as_bytes();
+    let mut i = 0;
+    while i < name.len() {
+        hash = unsafe {
+            // This is sound because obvious the index is within the string
+            // length.
+            hash.wrapping_mul(multiplier)
+                .wrapping_add(*bytes.get_unchecked(i) as u32)
+        };
+        i += 1;
+    }
+    hash
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, BinRead)]
@@ -43,7 +59,9 @@ fn hash_name(multiplier: u32, name: &str) -> u32 {
 #[repr(u16)]
 /// An enum to represent SARC endianness
 pub enum Endian {
+    /// Big Endian (Wii U)
     Big = 0xFFFE,
+    /// Little Endian (Switch)
     Little = 0xFEFF,
 }
 
@@ -85,6 +103,7 @@ struct ResFntHeader {
     reserved: u16,
 }
 
-fn is_valid_alignment(alignment: usize) -> bool {
+#[inline(always)]
+const fn is_valid_alignment(alignment: usize) -> bool {
     alignment != 0 && (alignment & (alignment - 1)) == 0
 }

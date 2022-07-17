@@ -56,34 +56,30 @@ struct AglEnvInfo {
     desc: String,
 }
 
+#[inline(always)]
 fn align(pos: usize, alignment: usize) -> usize {
     ((pos as i64 + alignment as i64 - 1) & (0 - alignment as i64)) as usize
 }
 
 #[cached]
 fn get_agl_env_alignment_requirements() -> Vec<(String, usize)> {
-    let mut info: Vec<AglEnvInfo> = serde_json::from_str(AGLENV_INFO).unwrap();
-    let mut requirements: Vec<(String, usize)> = vec![];
-    for (align, entry) in info.iter_mut().filter_map(|e| {
-        if e.align >= 0 {
-            Some((e.align as usize, e))
-        } else {
-            None
-        }
-    }) {
-        requirements.push((std::mem::take(&mut entry.ext), align));
-        requirements.push((std::mem::take(&mut entry.bext), align));
-    }
-    requirements
+    serde_json::from_str::<Vec<AglEnvInfo>>(AGLENV_INFO)
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| (e.align >= 0).then(|| (e.align as usize, e)))
+        .flat_map(|(align, entry)| [(entry.ext, align), (entry.bext, align)].into_iter())
+        .collect()
 }
 
-#[derive(Debug, PartialEq, Clone)]
+/// A simple SARC archive writer
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SarcWriter {
     endian: Endian,
     legacy: bool,
     hash_multiplier: u32,
     min_alignment: usize,
     alignment_map: HashMap<String, usize>,
+    /// Files to be written.
     pub files: IndexMap<String, Vec<u8>>,
 }
 
@@ -110,13 +106,7 @@ impl SarcWriter {
             alignment_map: HashMap::new(),
             files: sarc
                 .files()
-                .filter_map(|f| {
-                    if let Some(name) = f.name {
-                        Some((name.to_owned(), f.data.to_vec()))
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|f| f.name.map(|name| (name.to_owned(), f.data.to_vec())))
                 .collect(),
             min_alignment: sarc.guess_min_alignment(),
         }
@@ -161,7 +151,7 @@ impl SarcWriter {
         }
         .write_options(writer, &opts)?;
 
-        self.add_default_alignments()?;
+        self.add_default_alignments();
         let mut alignments: Vec<usize> = Vec::with_capacity(self.files.len());
 
         {
@@ -239,25 +229,37 @@ impl SarcWriter {
         Ok(())
     }
 
-    fn add_default_alignments(&mut self) -> Result<()> {
-        for (ext, alignment) in get_agl_env_alignment_requirements() {
-            self.add_alignment_requirement(ext, alignment)?;
+    fn add_default_alignments(&mut self) {
+        // This is perfectly sound because all of these alignments are powers
+        // of 2 and thus the calls cannot fail.
+        unsafe {
+            for (ext, alignment) in get_agl_env_alignment_requirements() {
+                self.add_alignment_requirement(ext, alignment)
+                    .unwrap_unchecked();
+            }
+            self.add_alignment_requirement("ksky".to_owned(), 8)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("ksky".to_owned(), 8)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("bksky".to_owned(), 8)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("gtx".to_owned(), 0x2000)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("sharcb".to_owned(), 0x1000)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("sharc".to_owned(), 0x1000)
+                .unwrap_unchecked();
+            self.add_alignment_requirement("baglmf".to_owned(), 0x80)
+                .unwrap_unchecked();
+            self.add_alignment_requirement(
+                "bffnt".to_owned(),
+                match self.endian {
+                    Endian::Big => 0x2000,
+                    Endian::Little => 0x1000,
+                },
+            )
+            .unwrap_unchecked();
         }
-        self.add_alignment_requirement("ksky".to_owned(), 8)?;
-        self.add_alignment_requirement("ksky".to_owned(), 8)?;
-        self.add_alignment_requirement("bksky".to_owned(), 8)?;
-        self.add_alignment_requirement("gtx".to_owned(), 0x2000)?;
-        self.add_alignment_requirement("sharcb".to_owned(), 0x1000)?;
-        self.add_alignment_requirement("sharc".to_owned(), 0x1000)?;
-        self.add_alignment_requirement("baglmf".to_owned(), 0x80)?;
-        self.add_alignment_requirement(
-            "bffnt".to_owned(),
-            match self.endian {
-                Endian::Big => 0x2000,
-                Endian::Little => 0x1000,
-            },
-        )?;
-        Ok(())
     }
 
     /// Set the minimum data alignment
@@ -271,12 +273,12 @@ impl SarcWriter {
 
     /// Set whether to use legacy mode (for games without a BOTW-style
     /// resource system) for addtional alignment restrictions
-    pub fn set_legacy_mode(&mut self, value: bool) -> () {
+    pub fn set_legacy_mode(&mut self, value: bool) {
         self.legacy = value
     }
 
     /// Set the endianness
-    pub fn set_endian(&mut self, endian: Endian) -> () {
+    pub fn set_endian(&mut self, endian: Endian) {
         self.endian = endian
     }
 

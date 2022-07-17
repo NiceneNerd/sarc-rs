@@ -2,7 +2,11 @@ use crate::*;
 use binread::{BinRead, BinReaderExt};
 use core::mem::size_of;
 use derivative::*;
-use std::{borrow::Cow, hash::{Hash, Hasher}, io::Cursor};
+use std::{
+    borrow::Cow,
+    hash::{Hash, Hasher},
+    io::Cursor,
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -28,6 +32,7 @@ fn find_null(data: &[u8]) -> Result<usize> {
         .ok_or(SarcError::UnterminatedStringError)
 }
 
+#[inline(always)]
 fn read<T: BinRead>(endian: Endian, reader: &mut Cursor<&[u8]>) -> Result<T> {
     Ok(match endian {
         Endian::Big => reader.read_be()?,
@@ -65,7 +70,7 @@ impl Hash for Sarc<'_> {
 
 impl<'a> Sarc<'_> {
     /// Parses a SARC archive from binary data
-    pub fn new<T>(data: T) -> Result<Sarc<'a>> where T: Into<Cow<'a, [u8]>> {
+    pub fn new<T: Into<Cow<'a, [u8]>>>(data: T) -> Result<Sarc<'a>> {
         let data = data.into();
 
         let mut reader = Cursor::new(data.as_ref());
@@ -180,12 +185,10 @@ impl<'a> Sarc<'_> {
             let m: u32 = (a + b) as u32 / 2;
             reader.set_position(self.entries_offset as u64 + 0x10 * m as u64);
             let hash: u32 = read(self.endian, &mut reader)?;
-            if needle_hash < hash {
-                b = m - 1;
-            } else if needle_hash > hash {
-                a = m + 1
-            } else {
-                return Ok(Some(self.file_at(m as usize)?));
+            match needle_hash.cmp(&hash) {
+                std::cmp::Ordering::Less => b = m - 1,
+                std::cmp::Ordering::Greater => a = m + 1,
+                std::cmp::Ordering::Equal => return Ok(Some(self.file_at(m as usize)?)),
             }
         }
         Ok(None)
@@ -235,7 +238,7 @@ impl<'a> Sarc<'_> {
         if !is_valid_alignment(gcd as usize) {
             return MIN_ALIGNMENT as usize;
         }
-        return gcd as usize;
+        gcd as usize
     }
 
     /// Returns true is each archive contains the same files
@@ -249,7 +252,7 @@ impl<'a> Sarc<'_> {
                 return false;
             }
         }
-        return true;
+        true
     }
 }
 
@@ -278,7 +281,7 @@ mod tests {
         ] {
             sarc.get_file(file)
                 .unwrap()
-                .expect(&format!("Could not find file {}", file));
+                .unwrap_or_else(|| panic!("Could not find file {}", file));
         }
     }
 }
